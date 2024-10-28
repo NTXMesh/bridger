@@ -8,6 +8,32 @@ from bridger.gateway import GatewayError, GatewayManagerEMQX, emqx
 from bridger.log import logger
 
 BRIDGER_ADMIN_ROLE = os.getenv("BRIDGER_ADMIN_ROLE", "Bridger Admin")
+QUERY_RECENT_PACKETS = """
+records = from(bucket: "meshtastic")
+  |> range(start: -1h)
+  |> filter(fn: (r) => r["gateway_id"] == "{gateway_id}")
+  |> filter(fn: (r) => r["_field"] == "packet_id")
+  |> keep(columns: ["_from", "_time", "_measurement"])
+  |> group()
+
+records
+  |> sort(columns: ["_time"])
+  |> last(column: "_time")
+  |> yield(name: "last")
+
+counts = records
+  |> sort(columns: ["_time"])
+  |> duplicate(column: "_measurement", as: "count")
+
+counts
+  |> group(columns: ["_measurement"])
+  |> count(column: "count")
+  |> yield(name: "counts")
+
+counts
+  |> count(column: "count")
+  |> yield(name: "total")
+"""
 
 
 def check_gateway_owner(interaction: Interaction) -> bool:
@@ -139,6 +165,15 @@ class MQTTCog(commands.GroupCog, name="bridger-mqtt"):
         await ctx.response.send_message(
             f"Gateway password reset: {gateway.node_hex_id} with new password: {password}",
             ephemeral=True,
+        )
+
+    @app_commands.command(name="is-alive", description="Check if MQTT gateway is alive and receiving packets")
+    async def is_alive(self, ctx: Interaction, node_id: str):
+        gateway = self.gateway_manager.get_gateway(node_id)
+        is_alive = self.gateway_manager.is_gateway_alive(gateway)
+
+        await ctx.response.send_message(
+            f"Gateway {gateway.node_hex_id} is {'alive' if is_alive else 'not alive'}", ephemeral=True
         )
 
 
