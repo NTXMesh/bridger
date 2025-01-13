@@ -35,8 +35,8 @@ dependencies = [
 ]
 
 [project.urls]
-Source = "https://github.com/austinmesh/bridger"
-Graphs = "https://graphs.austinmesh.org"
+Source = "https://github.com/ntxmesh/bridger"
+Graphs = "https://graphs.ntxmesh.net"
 
 [tool.black]
 line-length = 125
