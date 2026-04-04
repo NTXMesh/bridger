@@ -1,14 +1,10 @@
 import base64
-import os
 from abc import ABC, abstractmethod
 from argparse import ArgumentParser
 from typing import Optional, Union
 
 from google.protobuf.json_format import MessageToDict
 from google.protobuf.message import DecodeError
-from influxdb_client import InfluxDBClient
-from influxdb_client.client.write_api import SYNCHRONOUS
-from influxdb_client.rest import ApiException
 from meshtastic.protobuf.mesh_pb2 import Data, NeighborInfo, Position, User
 from meshtastic.protobuf.mqtt_pb2 import ServiceEnvelope
 from meshtastic.protobuf.portnums_pb2 import PortNum
@@ -25,8 +21,6 @@ from bridger.dataclasses import (
     TelemetryPoint,
 )
 from bridger.log import file_logger, logger
-
-INFLUXDB_V2_BUCKET = os.getenv("INFLUXDB_V2_BUCKET", "meshtastic")
 
 DECODERS = {
     PortNum.NODEINFO_APP: User,
@@ -46,9 +40,8 @@ class PacketProcessor(ABC):
     common_fields = ["rx_time", "rx_snr", "rx_rssi", "hop_limit", "hop_start", "packet_id"]
     common_tags = ["channel_id", "gateway_id", "_from", "to"]
 
-    def __init__(self, influx_client: InfluxDBClient, service_envelope: ServiceEnvelope):
+    def __init__(self, service_envelope: ServiceEnvelope):
         self.service_envelope = service_envelope
-        self.write_api = influx_client.write_api(write_options=SYNCHRONOUS)
 
     measurement_data = {
         NodeInfoPoint: ("node", ["long_name", "short_name", "hw_model", "role"], [], PortNum.NODEINFO_APP),
@@ -103,47 +96,6 @@ class PacketProcessor(ABC):
     def data(self):
         raise NotImplementedError
 
-    def write_data(self, record, measurement, fields, tags):
-        try:
-            extra = {
-                "measurement": measurement,
-                "tags": tags,
-                "fields": fields,
-                "common_fields": self.common_fields,
-                "common_tags": self.common_tags,
-                "record": record,
-            }
-
-            self.write_api.write(
-                bucket=INFLUXDB_V2_BUCKET,
-                record=record,
-                record_measurement_name=measurement,
-                record_field_keys=fields + self.common_fields,
-                record_tag_keys=tags + self.common_tags,
-            )
-
-            if isinstance(record, list):
-                logger.bind(**extra).opt(colors=True).info(
-                    f"Wrote {len(record)} {measurement} packets from gateway: <green>{record[0].gateway_id}</green>"
-                )
-            else:
-                logger.bind(**extra).opt(colors=True).info(
-                    f"Wrote {measurement} packet <yellow>{record.packet_id}</yellow> from gateway: <green>{record.gateway_id}</green>"  # noqa: E501
-                )
-        except ApiException as e:
-            if e.status == 401:
-                logger.error(f"Credentials for InfluxDB are either not set or incorrect: {e}")
-
-    def write_point(self, telemetry_data: Union[TelemetryPoint, list[TelemetryPoint]]):
-        for telemetry_class, (measurement, tags, fields, port_num) in self.measurement_data.items():
-            if isinstance(telemetry_data, telemetry_class):
-                self.write_data(telemetry_data, measurement, fields, tags)
-                break
-
-            # The InfluxDB write API can take a list of points
-            if isinstance(telemetry_data, list) and isinstance(telemetry_data[0], telemetry_class):
-                self.write_data(telemetry_data, measurement, fields, tags)
-                break
 
 
 # TODO: Implement a JSONPacketProcessor class to process packets that come in as JSON instead of protobuf
@@ -152,10 +104,8 @@ class PacketProcessor(ABC):
 
 
 class PBPacketProcessor(PacketProcessor):
-    def __init__(
-        self, influx_client: InfluxDBClient, service_envelope: ServiceEnvelope, force_decode=False, auto_decrypt=True
-    ):
-        super().__init__(influx_client, service_envelope)
+    def __init__(self, service_envelope: ServiceEnvelope, force_decode=False, auto_decrypt=True):
+        super().__init__(service_envelope)
 
         self.force_decode = force_decode
         self.crypto_engine = CryptoEngine()
@@ -300,7 +250,6 @@ class PBPacketProcessor(PacketProcessor):
 
 if __name__ == "__main__":
     logger.remove(file_logger)
-    influx_client = InfluxDBClient.from_env_properties()
     parser = ArgumentParser()
     parser.add_argument("packet", help="Base64 encoded protobuf message")
     args = parser.parse_args()
@@ -309,7 +258,7 @@ if __name__ == "__main__":
         service_envelope = ServiceEnvelope.FromString(base64.b64decode(args.packet))
         logger.info(f"Service envelope: \n{service_envelope}")
 
-        processor = PBPacketProcessor(influx_client, service_envelope, force_decode=True)
+        processor = PBPacketProcessor(service_envelope, force_decode=True)
         logger.info(f"Decoded packet: \n{processor.payload_as_dict}")
         logger.info(f"Data: {processor.data}")
 

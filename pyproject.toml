@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bridger"
 dynamic = ["version"]
-description = "A bridge between MQTT and InfluxDB for Meshtastic metrics"
+description = "A bridge between MQTT and Postgres for Meshtastic mesh network visualization"
 readme = "README.md"
 
 authors = [
@@ -17,21 +17,22 @@ authors = [
 ]
 
 dependencies = [
-    "arrow",
     "cryptography",
     "dataclasses-json",
-    "discord.py",
-    "influxdb-client",
     "loguru",
     "meshtastic",
     "paho-mqtt",
     "protobuf",
+    "psycopg2-binary",
+    "python-dotenv",
+    "sqlalchemy",
+]
+
+[project.optional-dependencies]
+dev = [
     "pytest",
     "pytest-cov",
-    "python-dotenv",
-    "requests",
     "requests-mock",
-    "sentry-sdk",
 ]
 
 [project.urls]

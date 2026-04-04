@@ -1,34 +1,34 @@
 import os
+import ssl
 
-from influxdb_client import InfluxDBClient
 from paho.mqtt.client import CallbackAPIVersion
 
+from bridger.db import init_db
 from bridger.log import logger
 from bridger.mqtt import BridgerMQTT
 
-MQTT_BROKER = os.getenv("MQTT_BROKER", "192.168.1.110")
-MQTT_USER = os.getenv("MQTT_USER", "station")
+MQTT_BROKER = os.getenv("MQTT_HOST", "localhost")
+MQTT_USER = os.getenv("MQTT_USER", "ntxmesh")
 MQTT_PASS = os.getenv("MQTT_PASS")
-MQTT_PORT = os.getenv("MQTT_PORT", 1883)
+MQTT_PORT = int(os.getenv("MQTT_PORT", 8883))
 
 
 if __name__ == "__main__":
     try:
-        influx_client: InfluxDBClient = InfluxDBClient.from_env_properties()
-        ready = influx_client.ping()
-        influx_url = influx_client.url
+        logger.info("Initializing database...")
+        init_db()
+        logger.info("Database ready")
 
-        if not ready:
-            raise ConnectionError(f"Cannot ping InfluxDB at {influx_url}. Is it running?")
-
-        client = BridgerMQTT(influx_client, CallbackAPIVersion.VERSION2)
+        client = BridgerMQTT(CallbackAPIVersion.VERSION2)
         client.username_pw_set(MQTT_USER, MQTT_PASS)
-        client.connect(MQTT_BROKER, MQTT_PORT, 60)
+        client.tls_set(cert_reqs=ssl.CERT_REQUIRED, tls_version=ssl.PROTOCOL_TLS_CLIENT)
+        client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
         client.reconnect_delay_set(min_delay=5, max_delay=120)
+        logger.info(f"Connecting to {MQTT_BROKER}:{MQTT_PORT}...")
         client.loop_forever(retry_first_connection=True)
     except KeyboardInterrupt:
         client.disconnect()
         client.loop_stop()
-        client = None
-    except ConnectionError as e:
-        logger.error(e)
+    except Exception as e:
+        logger.error(f"Fatal error: {e}")
+        raise
