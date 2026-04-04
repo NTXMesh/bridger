@@ -5,7 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, text
 
 app = FastAPI()
-engine = create_engine(os.environ["DATABASE_URL"])
+url = os.environ["DATABASE_URL"].replace("postgres://", "postgresql://", 1)
+engine = create_engine(url, pool_pre_ping=True)
 
 app.add_middleware(
     CORSMiddleware,
